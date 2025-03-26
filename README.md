@@ -5,7 +5,7 @@ TMEDポータルからデータをスクレイピングするNode.jsアプリケ
 ## 機能
 
 - 指定されたURLからのデータスクレイピング
-- 定期実行（デフォルト：毎日午前9時）
+- 定期実行（一時間ごと）
 - ログ出力（Winston）
 - Dockerコンテナ化
 
@@ -24,14 +24,10 @@ cd tmed-portal-scraping
 ```
 
 2. 環境変数の設定
-`.env`ファイルを作成し、必要な環境変数を設定：
-```
-TARGET_URL=https://example.com
-```
 
 3. Dockerコンテナの起動
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ## ログの確認
