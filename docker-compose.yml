@@ -1,0 +1,14 @@
+services:
+  scraper:
+    build: .
+    container_name: tmed-portal-scraper
+    image: tmed-portal-scraper
+    volumes:
+      - .:/app
+      - tmed-portal-data:/app/.app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  tmed-portal-data:
