@@ -5,7 +5,7 @@ services:
     image: tmed-portal-scraper
     volumes:
       - .:/app
-      - tmed-portal-data:/app/.app/data
+      - tmed-portal-data:/app/data
     env_file:
       - .env
     restart: unless-stopped

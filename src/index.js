@@ -8,23 +8,21 @@ const cron = require('node-cron');
 const { NodeHtmlMarkdown } = require('node-html-markdown');
 const nhm = new NodeHtmlMarkdown();
 
-// 保存先ディレクトリの設定
 const BASE_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ATTACHMENTS_DIR = path.join(BASE_DIR, 'attachments');
 const RESPONSES_DIR = path.join(BASE_DIR, 'responses');
 
-// ディレクトリの初期化
 async function initializeDirectories() {
   try {
     await fs.ensureDir(ATTACHMENTS_DIR);
     await fs.ensureDir(RESPONSES_DIR);
   } catch (error) {
     console.error('Error initializing directories:', error);
+    await sendErrorWebhook(error);
     throw error;
   }
 }
 
-// ファイルの保存
 async function saveAttachment(session, attachment, title) {
   try {
     if (!attachment.url) {
@@ -38,18 +36,16 @@ async function saveAttachment(session, attachment, title) {
       responseType: 'arraybuffer',
       maxRedirects: 5,
       validateStatus: function (status) {
-        return status >= 200 && status < 400; // リダイレクトを含む成功ステータスを許可
+        return status >= 200 && status < 400; 
       }
     });
 
-    // レスポンスヘッダーからContent-Typeを確認
     const contentType = response.headers['content-type'];
     if (contentType && contentType.includes('text/html')) {
-      console.log('Warning: Received HTML response instead of file');
+      console.warn('Warning: Received HTML response instead of file');
       return null;
     }
 
-    // Content-Dispositionヘッダーからファイル名を取得
     const contentDisposition = response.headers['content-disposition'];
     if (contentDisposition) {
       const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
@@ -58,7 +54,6 @@ async function saveAttachment(session, attachment, title) {
       }
     }
 
-    // ファイル名の安全な生成
     const filePath = path.join(ATTACHMENTS_DIR, title);
 
     await fs.writeFile(filePath, response.data);
@@ -67,15 +62,15 @@ async function saveAttachment(session, attachment, title) {
   } catch (error) {
     console.error('Error saving attachment:', error);
     if (error.response) {
-      console.error('Status:', error.response.status);
-      console.error('Headers:', error.response.headers);
-      console.error('Request Headers:', error.config.headers);
+      console.log('Status:', error.response.status);
+      console.log('Headers:', error.response.headers);
+      console.log('Request Headers:', error.config.headers);
     }
+    await sendErrorWebhook(error);
     return null;
   }
 }
 
-// Webhook関数
 async function sendWebhook(item, type) {
   try {
     const webhookUrl = process.env.GOOGLE_CHAT_WEBHOOK_URL;
@@ -84,7 +79,6 @@ async function sendWebhook(item, type) {
       return;
     }
 
-    // 日付のフォーマット
     const formatDate = (date) => {
       return new Date(date).toLocaleString('ja-JP', {
         year: 'numeric',
@@ -95,23 +89,17 @@ async function sendWebhook(item, type) {
       });
     };
 
-    // 添付ファイル情報の整形
     const formatAttachments = (attachments) => {
-      if (!attachments || attachments.length === 0) return 'なし';
-      return attachments.map(att => `• ${att.text}`).join('\n');
+      return attachments.map(att => `- ${att.text}`).join('\n');
     };
 
-    // メッセージの作成
-    const message = `*${type === 'new' ? '新規投稿' : '更新された投稿'}*\n\n` +
-      `*タイトル:* ${item.title}\n` +
-      `*送信者:* ${item.from}\n` +
-      `*宛先:* ${item.to.join(', ')}\n` +
-      `*投稿日時:* ${formatDate(item.posted)}\n` +
-      `*更新日時:* ${formatDate(item.updated)}\n\n` +
-      `*内容:*\n${item.content}\n\n` +
-      `*添付ファイル:*\n${formatAttachments(item.attachments)}`;
+    const message = `*${type === 'new' ? '【新規】' : '【更新】'}*\n\n` +
+      `*${item.title}*\n\n` +
+      `*対象:* ${item.to.join(', ')}\n` +
+      `*日時:* ${formatDate(item.posted)} 投稿, ${formatDate(item.updated)} 更新\n\n` +
+      `${item.content || '閲覧権限がありません'}` +
+      (item.attachments && item.attachments.length > 0 ? `\n\n*添付ファイル:*\n${formatAttachments(item.attachments)}` : '');
 
-    // Google Chatに送信
     const response = await axios.post(webhookUrl, {
       text: message
     }, {
@@ -132,7 +120,52 @@ async function sendWebhook(item, type) {
   }
 }
 
-async function saveResponse(data) {
+async function sendErrorWebhook(error) {
+  try {
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (!webhookUrl) {
+      console.log('Discord Webhook URLが設定されていません。Discord通知をスキップします。');
+      return;
+    }
+
+    const embed = {
+      title: 'Error',
+      color: 0xff0000,
+      fields: [
+        {
+          name: 'Error Message',
+          value: error.message || 'Unknown error',
+          inline: false
+        }
+      ],
+      timestamp: new Date().toISOString()
+    };
+
+    if (error.response) {
+      embed.fields.push({
+        name: 'Response Status',
+        value: error.response.status.toString(),
+        inline: true
+      });
+    }
+
+    const response = await axios.post(webhookUrl, {
+      embeds: [embed]
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('Discord error notification sent');
+    return response.data;
+  } catch (sendError) {
+    console.error('Discord webhook send error:', sendError);
+    return null;
+  }
+}
+
+async function processResponse(data) {
   try {
     const fileName = `response.json`;
     const filePath = path.join(RESPONSES_DIR, fileName);
@@ -154,7 +187,6 @@ async function saveResponse(data) {
       if (!existingItem) {
         newItems.push(newItem);
       } else {
-        // 更新の検知をより厳密に行う
         const isUpdated = 
           new Date(newItem.updated) > new Date(existingItem.updated) ||
           newItem.content !== existingItem.content ||
@@ -177,27 +209,24 @@ async function saveResponse(data) {
       }
     }
 
-    // 差分情報をログ出力
     console.log(`Found ${newItems.length} new items and ${updatedItems.length} updated items`);
     
-    // 新規アイテムのWebhook送信
     for (const item of newItems) {
       console.log('New item:', item.title);
       await sendWebhook(item, 'new');
     }
-    
-    // 更新アイテムのWebhook送信
+
     for (const item of updatedItems) {
       console.log('Updated item:', item.title);
       await sendWebhook(item, 'updated');
     }
 
-    // 新しいデータを保存
     await fs.writeJson(filePath, data, { spaces: 2 });
     console.log('Response saved:', fileName);
     return filePath;
   } catch (error) {
     console.error('Error saving response:', error);
+    await sendErrorWebhook(error);
     return null;
   }
 }
@@ -310,19 +339,18 @@ async function scrape() {
                 const detail = await fetchDetailPage(href);
                 Object.assign(rowData, detail);
 
-                // 添付ファイルの保存
-                if (detail.attachments && detail.attachments.length > 0) {
-                  rowData['savedAttachments'] = [];
-                  for (const attachment of detail.attachments) {
-                    const savedPath = await saveAttachment(session, attachment, rowData.title);
-                    if (savedPath) {
-                      rowData['savedAttachments'].push({
-                        originalName: attachment.text,
-                        savedPath: savedPath
-                      });
-                    }
-                  }
-                }
+                // if (detail.attachments && detail.attachments.length > 0) {
+                //   rowData['savedAttachments'] = [];
+                //   for (const attachment of detail.attachments) {
+                //     const savedPath = await saveAttachment(session, attachment, rowData.title);
+                //     if (savedPath) {
+                //       rowData['savedAttachments'].push({
+                //         originalName: attachment.text,
+                //         savedPath: savedPath
+                //       });
+                //     }
+                //   }
+                // }
 
                 if (rowData.fullUpdated) {
                   const fullYear = rowData.fullUpdated.getFullYear();
@@ -356,6 +384,7 @@ async function scrape() {
                 }
               } catch (error) {
                 console.log(`Error fetching detail page for row ${i + 1}: ${error.message}`);
+                await sendErrorWebhook(error);
               }
             }
             data.push(rowData);
@@ -366,8 +395,7 @@ async function scrape() {
       }
     }
 
-    // レスポンスの保存
-    await saveResponse(data);
+    await processResponse(data);
     console.log('Scraping completed');
 
     async function fetchDetailPage(url) {
@@ -404,15 +432,14 @@ async function scrape() {
 
   } catch (error) {
     console.error('Error:', error.message);
+    await sendErrorWebhook(error);
   }
 }
 
-// 初回実行
 console.log('Application started');
 scrape();
 
-// 1時間ごとに実行
-cron.schedule('0 * * * *', () => {
+cron.schedule('*/15 * * * *', () => {
   console.log('Starting scheduled scraping');
   scrape();
 }); 
