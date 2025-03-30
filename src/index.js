@@ -103,25 +103,21 @@ async function sendWebhook(item, type) {
       `${item.content || '閲覧権限がありません'}` +
       (item.attachments && item.attachments.length > 0 ? `\n\n*添付ファイル:*\n${formatAttachments(item.attachments)}` : '');
 
-    const targetYears = new Set();
+    const targetGrades = new Set();
 
-    // 対象者の判定
     for (const target of item.to) {
       if (target === '全医学部生' || target === '全学') {
-        // 全学年に送信
-        Object.keys(webhookUrls).forEach(year => targetYears.add(year));
+        Object.keys(webhookUrls).forEach(year => targetGrades.add(year));
         break;
       } else if (target.match(/^M[1-6]$/)) {
-        // 特定の学年に送信
-        targetYears.add(target);
+        targetGrades.add(target);
       }
     }
 
-    // 通知の送信
-    for (const year of targetYears) {
-      const webhookUrl = webhookUrls[year];
+    for (const grade of targetGrades) {
+      const webhookUrl = webhookUrls[grade];
       if (!webhookUrl) {
-        console.log(`${year}のWebhook URLが設定されていません。スキップします。`);
+        console.log(`${grade}のWebhook URLが設定されていません。スキップします。`);
         continue;
       }
 
@@ -134,9 +130,9 @@ async function sendWebhook(item, type) {
           }
         });
 
-        console.log(`${year}へのGoogle Chat通知を送信しました: ${item.title}`);
+        console.log(`${grade}へのGoogle Chat通知を送信しました: ${item.title}`);
       } catch (error) {
-        console.error(`${year}への通知送信エラー:`, error);
+        console.error(`${grade}への通知送信エラー:`, error);
         if (error.response) {
           console.error('Status:', error.response.status);
           console.error('Response:', error.response.data);
