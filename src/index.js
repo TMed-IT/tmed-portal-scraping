@@ -73,11 +73,14 @@ async function saveAttachment(session, attachment, title) {
 
 async function sendWebhook(item, type) {
   try {
-    const webhookUrl = process.env.GOOGLE_CHAT_WEBHOOK_URL;
-    if (!webhookUrl) {
-      console.log('Google Chat Webhook URL not set, skipping webhook notification');
-      return;
-    }
+    const webhookUrls = {
+      'M1': process.env.WEBHOOK_URL_M1,
+      'M2': process.env.WEBHOOK_URL_M2,
+      'M3': process.env.WEBHOOK_URL_M3,
+      'M4': process.env.WEBHOOK_URL_M4,
+      'M5': process.env.WEBHOOK_URL_M5,
+      'M6': process.env.WEBHOOK_URL_M6
+    };
 
     const formatDate = (date) => {
       return new Date(date).toLocaleString('ja-JP', {
@@ -100,22 +103,50 @@ async function sendWebhook(item, type) {
       `${item.content || '閲覧権限がありません'}` +
       (item.attachments && item.attachments.length > 0 ? `\n\n*添付ファイル:*\n${formatAttachments(item.attachments)}` : '');
 
-    const response = await axios.post(webhookUrl, {
-      text: message
-    }, {
-      headers: {
-        'Content-Type': 'application/json; charset=UTF-8'
-      }
-    });
+    const targetYears = new Set();
 
-    console.log(`Google Chat notification sent for ${type} item: ${item.title}`);
-    return response.data;
-  } catch (error) {
-    console.error('Error sending webhook:', error);
-    if (error.response) {
-      console.error('Status:', error.response.status);
-      console.error('Response:', error.response.data);
+    // 対象者の判定
+    for (const target of item.to) {
+      if (target === '全医学部生' || target === '全学') {
+        // 全学年に送信
+        Object.keys(webhookUrls).forEach(year => targetYears.add(year));
+        break;
+      } else if (target.match(/^M[1-6]$/)) {
+        // 特定の学年に送信
+        targetYears.add(target);
+      }
     }
+
+    // 通知の送信
+    for (const year of targetYears) {
+      const webhookUrl = webhookUrls[year];
+      if (!webhookUrl) {
+        console.log(`${year}のWebhook URLが設定されていません。スキップします。`);
+        continue;
+      }
+
+      try {
+        const response = await axios.post(webhookUrl, {
+          text: message
+        }, {
+          headers: {
+            'Content-Type': 'application/json; charset=UTF-8'
+          }
+        });
+
+        console.log(`${year}へのGoogle Chat通知を送信しました: ${item.title}`);
+      } catch (error) {
+        console.error(`${year}への通知送信エラー:`, error);
+        if (error.response) {
+          console.error('Status:', error.response.status);
+          console.error('Response:', error.response.data);
+        }
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Webhook送信エラー:', error);
     return null;
   }
 }
