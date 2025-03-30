@@ -1,7 +1,7 @@
 services:
   scraper:
     build: .
-    container_name: tmed-portal-scraper
+    container_name: scraper
     image: tmed-portal-scraper
     volumes:
       - .:/app
@@ -9,6 +9,19 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+
+  # worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.worker
+  #   container_name: worker
+  #   image: tmed-portal-worker
+  #   volumes:
+  #     - .:/app
+  #     - tmed-portal-data:/app/data
+  #   env_file:
+  #     - .env
+  #   restart: unless-stopped
 
 volumes:
   tmed-portal-data:
