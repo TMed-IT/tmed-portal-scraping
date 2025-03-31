@@ -1,27 +1,37 @@
 services:
   scraper:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper
     container_name: scraper
     image: tmed-portal-scraper
     volumes:
-      - .:/app
+      - ./data:/app/data
       - tmed-portal-data:/app/data
     env_file:
       - .env
     restart: unless-stopped
+    networks:
+      - tmed-portal-network
 
-  # worker:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.worker
-  #   container_name: worker
-  #   image: tmed-portal-worker
-  #   volumes:
-  #     - .:/app
-  #     - tmed-portal-data:/app/data
-  #   env_file:
-  #     - .env
-  #   restart: unless-stopped
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    container_name: webhook
+    image: tmed-portal-webhook
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - tmed-portal-network
+
+networks:
+  tmed-portal-network:
+    name: tmed-portal-network
+    driver: bridge
 
 volumes:
   tmed-portal-data:

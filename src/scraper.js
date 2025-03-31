@@ -4,13 +4,14 @@ const iconv = require('iconv-lite');
 const cheerio = require('cheerio');
 const fs = require('fs-extra');
 const path = require('path');
-const cron = require('node-cron');
 const { NodeHtmlMarkdown } = require('node-html-markdown');
 const nhm = new NodeHtmlMarkdown();
 
 const BASE_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ATTACHMENTS_DIR = path.join(BASE_DIR, 'attachments');
 const RESPONSES_DIR = path.join(BASE_DIR, 'responses');
+
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://webhook:3000';
 
 async function initializeDirectories() {
   try {
@@ -20,6 +21,26 @@ async function initializeDirectories() {
     console.error('Error initializing directories:', error);
     await sendErrorWebhook(error);
     throw error;
+  }
+}
+
+async function sendErrorWebhook(error) {
+  try {
+    const response = await axios.post(`${WEBHOOK_URL}/error`, {
+      error: {
+        message: error.message,
+        stack: error.stack,
+        response: error.response ? {
+          status: error.response.status,
+          data: error.response.data
+        } : null
+      }
+    });
+    console.log('Error notification sent');
+    return response.data;
+  } catch (sendError) {
+    console.error('Error sending error notification:', sendError);
+    return null;
   }
 }
 
@@ -66,135 +87,13 @@ async function saveAttachment(session, attachment, title) {
       console.log('Headers:', error.response.headers);
       console.log('Request Headers:', error.config.headers);
     }
-    await sendErrorWebhook(error);
-    return null;
-  }
-}
-
-async function sendWebhook(item, type) {
-  try {
-    const webhookUrls = {
-      'M1': process.env.WEBHOOK_URL_M1,
-      'M2': process.env.WEBHOOK_URL_M2,
-      'M3': process.env.WEBHOOK_URL_M3,
-      'M4': process.env.WEBHOOK_URL_M4,
-      'M5': process.env.WEBHOOK_URL_M5,
-      'M6': process.env.WEBHOOK_URL_M6
-    };
-
-    const formatDate = (date) => {
-      return new Date(date).toLocaleString('ja-JP', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    };
-
-    const formatAttachments = (attachments) => {
-      return attachments.map(att => `- ${att.text}`).join('\n');
-    };
-
-    const message = `*${type === 'new' ? '【新規】' : '【更新】'}*\n\n` +
-      `*${item.title}*\n\n` +
-      `*対象:* ${item.to.join(', ')}\n` +
-      `*日時:* ${formatDate(item.posted)} 投稿, ${formatDate(item.updated)} 更新\n\n` +
-      `${item.content || '閲覧権限がありません'}` +
-      (item.attachments && item.attachments.length > 0 ? `\n\n*添付ファイル:*\n${formatAttachments(item.attachments)}` : '');
-
-    const targetGrades = new Set();
-
-    for (const target of item.to) {
-      if (target === '全医学部生' || target === '全学') {
-        Object.keys(webhookUrls).forEach(year => targetGrades.add(year));
-        break;
-      } else if (target.match(/^M[1-6]$/)) {
-        targetGrades.add(target);
-      }
-    }
-
-    for (const grade of targetGrades) {
-      const webhookUrl = webhookUrls[grade];
-      if (!webhookUrl) {
-        console.log(`${grade}のWebhook URLが設定されていません。スキップします。`);
-        continue;
-      }
-
-      try {
-        const response = await axios.post(webhookUrl, {
-          text: message
-        }, {
-          headers: {
-            'Content-Type': 'application/json; charset=UTF-8'
-          }
-        });
-
-        console.log(`${grade}へのGoogle Chat通知を送信しました: ${item.title}`);
-      } catch (error) {
-        console.error(`${grade}への通知送信エラー:`, error);
-        if (error.response) {
-          console.error('Status:', error.response.status);
-          console.error('Response:', error.response.data);
-        }
-      }
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Webhook送信エラー:', error);
-    return null;
-  }
-}
-
-async function sendErrorWebhook(error) {
-  try {
-    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-    if (!webhookUrl) {
-      console.log('Discord Webhook URLが設定されていません。Discord通知をスキップします。');
-      return;
-    }
-
-    const embed = {
-      title: 'Error',
-      color: 0xff0000,
-      fields: [
-        {
-          name: 'Error Message',
-          value: error.message || 'Unknown error',
-          inline: false
-        }
-      ],
-      timestamp: new Date().toISOString()
-    };
-
-    if (error.response) {
-      embed.fields.push({
-        name: 'Response Status',
-        value: error.response.status.toString(),
-        inline: true
-      });
-    }
-
-    const response = await axios.post(webhookUrl, {
-      embeds: [embed]
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    console.log('Discord error notification sent');
-    return response.data;
-  } catch (sendError) {
-    console.error('Discord webhook send error:', sendError);
-    return null;
+    throw error;
   }
 }
 
 async function processResponse(data) {
   try {
-    const fileName = `response.json`;
+    const fileName = `notice.json`;
     const filePath = path.join(RESPONSES_DIR, fileName);
 
     let previousData = [];
@@ -238,23 +137,26 @@ async function processResponse(data) {
 
     console.log(`Found ${newItems.length} new items and ${updatedItems.length} updated items`);
     
-    for (const item of newItems) {
-      console.log('New item:', item.title);
-      await sendWebhook(item, 'new');
+    if (newItems.length > 0 || updatedItems.length > 0) {
+      try {
+        await axios.post(`${WEBHOOK_URL}/notify`, {
+          new: newItems,
+          updated: updatedItems
+        });
+        console.log('Notification sent successfully');
+      } catch (error) {
+        console.error('Error sending notification:', error);
+        await sendErrorWebhook(error);
+      }
     }
-
-    for (const item of updatedItems) {
-      console.log('Updated item:', item.title);
-      await sendWebhook(item, 'updated');
-    }
-
+    
     await fs.writeJson(filePath, data, { spaces: 2 });
     console.log('Response saved:', fileName);
     return filePath;
   } catch (error) {
     console.error('Error saving response:', error);
     await sendErrorWebhook(error);
-    return null;
+    throw error;
   }
 }
 
@@ -272,7 +174,7 @@ async function scrape() {
 
     const session = axios.create({
       withCredentials: true,
-      responseType: 'arraybuffer'  // Response type is binary data
+      responseType: 'arraybuffer'
     });
 
     const mainPageRaw = await session.post(loginUrl, `MAILADDRESS=${loginId}&LOGINPASS=${loginPassword}`);
@@ -366,19 +268,6 @@ async function scrape() {
                 const detail = await fetchDetailPage(href);
                 Object.assign(rowData, detail);
 
-                // if (detail.attachments && detail.attachments.length > 0) {
-                //   rowData['savedAttachments'] = [];
-                //   for (const attachment of detail.attachments) {
-                //     const savedPath = await saveAttachment(session, attachment, rowData.title);
-                //     if (savedPath) {
-                //       rowData['savedAttachments'].push({
-                //         originalName: attachment.text,
-                //         savedPath: savedPath
-                //       });
-                //     }
-                //   }
-                // }
-
                 if (rowData.fullUpdated) {
                   const fullYear = rowData.fullUpdated.getFullYear();
                   const originalPosted = rowData.posted;
@@ -411,7 +300,7 @@ async function scrape() {
                 }
               } catch (error) {
                 console.log(`Error fetching detail page for row ${i + 1}: ${error.message}`);
-                await sendErrorWebhook(error);
+                throw error;
               }
             }
             data.push(rowData);
@@ -459,13 +348,14 @@ async function scrape() {
 
   } catch (error) {
     console.error('Error:', error.message);
-    await sendErrorWebhook(error);
+    throw error;
   }
 }
 
-console.log('Application started');
+console.log('Scraper started');
 scrape();
 
+const cron = require('node-cron');
 cron.schedule('*/15 * * * *', () => {
   console.log('Starting scheduled scraping');
   scrape();

@@ -3,9 +3,9 @@ FROM node:23-alpine
 WORKDIR /app
 
 COPY package*.json ./
-
 RUN npm install
 
-COPY . .
+COPY src/webhook.js ./src/
+COPY .env ./
 
-CMD ["npm", "start"] 
+CMD ["node", "src/webhook.js"] 
