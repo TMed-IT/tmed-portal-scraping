@@ -7,7 +7,7 @@ const path = require('path');
 const { NodeHtmlMarkdown } = require('node-html-markdown');
 const nhm = new NodeHtmlMarkdown();
 
-const BASE_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const BASE_DIR = path.join(__dirname, '..', 'data');
 const ATTACHMENTS_DIR = path.join(BASE_DIR, 'attachments');
 const RESPONSES_DIR = path.join(BASE_DIR, 'responses');
 

@@ -1,54 +1,71 @@
 # TMED Portal Scraping
 
-TMEDポータルからデータをスクレイピングするNode.jsアプリケーション
+東邦大学医学部ポータルサイトのお知らせを自動的にスクレイピングし、Google Chatに通知するシステムです。
 
 ## 機能
 
-- 指定されたURLからのデータスクレイピング
-- 定期実行（一時間ごと）
-- ログ出力（Winston）
-- Dockerコンテナ化
+- 15分ごとにポータルサイトをスクレイピング
+- 新規投稿と更新された投稿を検知
+- 学年別のGoogle Chatに通知
+- 投稿内容をMarkdown形式で保存
 
 ## 必要条件
 
 - Node.js 18以上
-- Docker
-- Docker Compose
+- Docker と Docker Compose
 
-## セットアップ
+## 環境変数
 
-1. リポジトリのクローン
+`.env`ファイルを作成し、以下の環境変数を設定してください：
+
+```env
+LOGIN_ID=
+LOGIN_PASSWORD=
+PORT=3000                    # Webhookサーバーのポート
+
+# Google Chat Webhook URLs
+WEBHOOK_URL_M1=             # M1向けWebhook URL
+WEBHOOK_URL_M2=             # M2向けWebhook URL
+WEBHOOK_URL_M3=             # M3向けWebhook URL
+WEBHOOK_URL_M4=             # M4向けWebhook URL
+WEBHOOK_URL_M5=             # M5向けWebhook URL
+WEBHOOK_URL_M6=             # M6向けWebhook URL
+```
+
+## インストールと実行
+
+1. リポジトリをクローン：
 ```bash
 git clone [repository-url]
 cd tmed-portal-scraping
 ```
 
-2. 環境変数の設定
-
-3. Dockerコンテナの起動
+2. 環境変数の設定：
 ```bash
-docker compose up -d
+cp .env.example .env
+# .envファイルを編集して必要な値を設定
 ```
 
-## ログの確認
-
-ログは`logs`ディレクトリに出力されます：
-- `combined.log`: すべてのログ
-- `error.log`: エラーログのみ
-
-## 定期実行の設定
-
-`src/index.js`の`cron.schedule()`で定期実行のスケジュールを設定できます。
-デフォルトは毎日午前9時（`0 9 * * *`）に実行されます。
-
-## 開発
-
-1. 依存関係のインストール
+3. Dockerコンテナの起動：
 ```bash
-npm install
+docker-compose up -d
 ```
 
-2. アプリケーションの実行
-```bash
-npm start
-``` 
+## アーキテクチャ
+
+システムは2つのコンテナで構成されています：
+
+1. **Scraper**（`src/scraper.js`）
+   - ポータルサイトのスクレイピング
+   - 投稿内容の解析と保存
+   - Webhookサーバーへの通知
+
+2. **Webhook**（`src/webhook.js`）
+   - 通知の受信
+   - Google Chatへのメッセージ送信
+   - 学年別の通知振り分け
+
+## データ保存
+
+- `data/responses/`: スクレイピングしたデータのJSON
+- `data/attachments/`: ダウンロードした添付ファイル
