@@ -181,13 +181,24 @@ async function scrape() {
 
     const cookies = mainPageRaw.headers['set-cookie'];
     if (cookies) {
-      const cookieString = cookies.map(cookie => cookie.split(';')[0]).join('; ');
+      const cookieString = cookies.map(cookie => cookie.split(';')[0]).concat('; ').join('');
       session.defaults.headers.Cookie = cookieString;
       console.log('Cookie set:', cookieString);
     }
 
     const mainPage = iconv.decode(mainPageRaw.data, 'Shift_JIS');
     const $main = cheerio.load(mainPage);
+
+    //get ASP.NET_SessionId from the url specified in the iframe of the mainpage
+    const ASP_NET_SessionId_Url = 'https://ep.med.toho-u.ac.jp' + $main('iframe').attr('src');
+    const ASP_NET_SessionId_PageRaw = await session.get(ASP_NET_SessionId_Url);
+    const ASP_NET_SessionIds = ASP_NET_SessionId_PageRaw.headers['set-cookie'];
+    if (ASP_NET_SessionIds) {
+      const ASP_NET_SessionId_String = ASP_NET_SessionIds.map(cookie => cookie.split(';')[0]).concat('; ').join('');
+      session.defaults.headers.Cookie += ASP_NET_SessionId_String;
+      console.log('Cookie set:', session.defaults.headers.Cookie);
+    }
+
 
     let currentYear = new Date().getFullYear();
     let previousUpdated = null;
