@@ -48,7 +48,7 @@ cp .env.example .env
 
 3. Dockerコンテナの起動：
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ## アーキテクチャ
