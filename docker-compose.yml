@@ -7,12 +7,12 @@ services:
     image: tmed-portal-scraper
     volumes:
       - ./data:/app/data
-      - tmed-portal-data:/app/data
+      - tmed-scraping-data:/app/data
     env_file:
       - .env
     restart: unless-stopped
     networks:
-      - tmed-portal-network
+      - tmed-scraping-network
 
   webhook:
     build:
@@ -22,16 +22,17 @@ services:
     image: tmed-portal-webhook
     volumes:
       - ./data:/app/data
+      - tmed-scraping-data:/app/data
     env_file:
       - .env
     restart: unless-stopped
     networks:
-      - tmed-portal-network
+      - tmed-scraping-network
 
 networks:
-  tmed-portal-network:
-    name: tmed-portal-network
+  tmed-scraping-network:
+    name: tmed-scraping-network
     driver: bridge
 
 volumes:
-  tmed-portal-data:
+  tmed-scraping-data:
