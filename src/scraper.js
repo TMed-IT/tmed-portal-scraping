@@ -11,6 +11,8 @@ const BASE_DIR = path.join(__dirname, '..', 'data');
 const ATTACHMENTS_DIR = path.join(BASE_DIR, 'attachments');
 const RESPONSES_DIR = path.join(BASE_DIR, 'responses');
 
+const uld = require('./uploader');
+
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://webhook:3000';
 
 async function initializeDirectories() {
@@ -44,8 +46,31 @@ async function sendErrorWebhook(error) {
   }
 }
 
-async function saveAttachment(session, attachment, title) {
+async function saveAttachmentForItem(session, item) {
   try {
+    if (item.attachments[0]){ 
+      item.attachments = await Promise.all(item.attachments.map(async (attachment) => {
+        try {
+          const file_id = await saveAttachment(session, attachment);
+          attachment.file_id = file_id;
+          return attachment;
+        } catch (error) {
+          throw error;
+        } 
+      }))
+      return item;
+    }else {
+      return item;
+    }
+  } catch (error) {
+    console.error('Error saveAttachmentForItem: ', error);
+    throw error;
+  }
+}
+
+async function saveAttachment(session, attachment) {
+  try {
+    const title = attachment.text;
     if (!attachment.url) {
       console.log('Attachment URL not found:', attachment.text);
       return;
@@ -61,12 +86,15 @@ async function saveAttachment(session, attachment, title) {
       }
     });
 
+    console.log(`get attachment: ${title}`);
+
     const contentType = response.headers['content-type'];
     if (contentType && contentType.includes('text/html')) {
       console.warn('Warning: Received HTML response instead of file');
       return null;
     }
 
+    //The fileName is garbled. can't use
     const contentDisposition = response.headers['content-disposition'];
     if (contentDisposition) {
       const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
@@ -75,11 +103,12 @@ async function saveAttachment(session, attachment, title) {
       }
     }
 
-    const filePath = path.join(ATTACHMENTS_DIR, title);
+    //upload to google drive
+    const file = response.data.toString('base64');
+    const file_id = await uld.uploadFile(file,title)
+    console.log(`save attachment: ${title} url: ${file_id}`);
 
-    await fs.writeFile(filePath, response.data);
-    console.log('Attachment saved:', title);
-    return filePath;
+    return file_id;
   } catch (error) {
     console.error('Error saving attachment:', error);
     if (error.response) {
@@ -91,7 +120,7 @@ async function saveAttachment(session, attachment, title) {
   }
 }
 
-async function processResponse(data) {
+async function processResponse(data,session) {
   try {
     const fileName = `notice.json`;
     const filePath = path.join(RESPONSES_DIR, fileName);
@@ -104,8 +133,19 @@ async function processResponse(data) {
       console.log('No previous response file found, creating new one');
     }
 
-    const updatedItems = [];
-    const newItems = [];
+    //delete previous file id
+    for (const item of previousData) {
+      if (item.attachments[0]) {
+        for (const att of item.attachments) {
+          if (att.file_id) {
+            delete att.file_id;
+          }
+        }
+      }
+    }
+
+    let updatedItems = [];
+    let newItems = [];
 
     for (const newItem of data) {
       const existingItem = previousData.find(item => item.id === newItem.id);
@@ -120,6 +160,11 @@ async function processResponse(data) {
           newItem.from !== existingItem.from ||
           JSON.stringify(newItem.to) !== JSON.stringify(existingItem.to) ||
           newItem.title !== existingItem.title;
+        
+        const isUpdated_nodetail = new Date(newItem.updated) > new Date(existingItem.updated) ||
+          newItem.from !== existingItem.from ||
+          JSON.stringify(newItem.to) !== JSON.stringify(existingItem.to) ||
+          newItem.title !== existingItem.title;
 
         if (isUpdated) {
           console.log(`Item ${newItem.id} has been updated:`);
@@ -129,6 +174,12 @@ async function processResponse(data) {
           console.log('- From changed:', newItem.from !== existingItem.from);
           console.log('- To changed:', JSON.stringify(newItem.to) !== JSON.stringify(existingItem.to));
           console.log('- Update time changed:', new Date(newItem.updated) > new Date(existingItem.updated));
+
+          //Notify if there is an item that can't be detected without details (experimental)
+          if(!isUpdated_nodetail){
+            console.log(`updating Item ${newItem.title} id: ${newItem.id} can't be detected without detail`);
+            sendErrorWebhook(`updating Item ${newItem.id} can't be detected without detail`);
+          }
           
           updatedItems.push(newItem);
         }
@@ -138,15 +189,28 @@ async function processResponse(data) {
     console.log(`Found ${newItems.length} new items and ${updatedItems.length} updated items`);
     
     if (newItems.length > 0 || updatedItems.length > 0) {
-      try {
-        await axios.post(`${WEBHOOK_URL}/notify`, {
-          new: newItems,
-          updated: updatedItems
-        });
-        console.log('Notification sent successfully');
-      } catch (error) {
-        console.error('Error sending notification:', error);
-        await sendErrorWebhook(error);
+      if (newItems.length > 20 || updatedItems.length > 20) {
+        console.log(`too many new or updated items! skip saving attachment and sending notification`);
+      }else {
+        try {
+          newItems = await Promise.all(newItems.map(item => saveAttachmentForItem(session, item)));
+          updatedItems = await Promise.all(updatedItems.map(item => saveAttachmentForItem(session, item)));
+          console.log('All save Attachment promises were resolved');
+        } catch (error) {
+          console.error('Error save attachment: ', error);
+          await sendErrorWebhook(error);
+        }
+        //send notification
+        try {
+          await axios.post(`${WEBHOOK_URL}/notify`, {
+            new: newItems,
+            updated: updatedItems
+          });
+          console.log('Notification sent successfully');
+        } catch (error) {
+          console.error('Error sending notification:', error);
+          await sendErrorWebhook(error);
+        }
       }
     }
     
@@ -196,7 +260,7 @@ async function scrape() {
     if (ASP_NET_SessionIds) {
       const ASP_NET_SessionId_String = ASP_NET_SessionIds.map(cookie => cookie.split(';')[0]).concat('; ').join('');
       session.defaults.headers.Cookie += ASP_NET_SessionId_String;
-      console.log('Cookie set:', session.defaults.headers.Cookie);
+      console.log('Cookie update:', session.defaults.headers.Cookie);
     }
 
 
@@ -322,7 +386,7 @@ async function scrape() {
       }
     }
 
-    await processResponse(data);
+    await processResponse(data,session);
     console.log('Scraping completed');
 
     async function fetchDetailPage(url) {
@@ -346,7 +410,7 @@ async function scrape() {
           detail['content'] = content;
         } else if (k >= 3) {
           const attachment = {
-            text: line.find('td').text().trim(),
+            text: line.find('td').text().trim().replace(/添付ファイル\d+ \(\w+\) /,""),
             url: line.find('a').attr('href')
           };
           attachments.push(attachment);

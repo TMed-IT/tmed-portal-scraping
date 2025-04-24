@@ -27,7 +27,7 @@ async function sendWebhook(item, type) {
     };
 
     const formatAttachments = (attachments) => {
-      return attachments.map(att => `- ${att.text}`).join('\n');
+      return attachments.map(att => att.file_id ? `- <${att.file_id}|${att.text}>` : `- ${att.text}`).join('\n');
     };
 
     const message = `*${type === 'new' ? '【新規】' : '【更新】'}*\n\n` +
