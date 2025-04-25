@@ -27,7 +27,7 @@ async function sendWebhook(item, type) {
     };
 
     const formatAttachments = (attachments) => {
-      return attachments.map(att => att.file_id ? `- <${att.file_id}|${att.text}>` : `- ${att.text}`).join('\n');
+      return attachments.map(att => att.file_url ? `- <${att.file_url}|${att.text}>` : `- ${att.text}`).join('\n');
     };
 
     if (!item.content) {
