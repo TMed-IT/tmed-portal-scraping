@@ -8,7 +8,6 @@ const { NodeHtmlMarkdown } = require('node-html-markdown');
 const nhm = new NodeHtmlMarkdown();
 
 const BASE_DIR = path.join(__dirname, '..', 'data');
-const ATTACHMENTS_DIR = path.join(BASE_DIR, 'attachments');
 const RESPONSES_DIR = path.join(BASE_DIR, 'responses');
 
 const uld = require('./uploader');
@@ -17,7 +16,6 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://webhook:3000';
 
 async function initializeDirectories() {
   try {
-    await fs.ensureDir(ATTACHMENTS_DIR);
     await fs.ensureDir(RESPONSES_DIR);
   } catch (error) {
     console.error('Error initializing directories:', error);
@@ -51,8 +49,8 @@ async function saveAttachmentForItem(session, item) {
     if (item.attachments[0]){ 
       item.attachments = await Promise.all(item.attachments.map(async (attachment) => {
         try {
-          const file_id = await saveAttachment(session, attachment);
-          attachment.file_id = file_id;
+          const file_url = await saveAttachment(session, attachment);
+          attachment.file_url = file_url;
           return attachment;
         } catch (error) {
           console.error('Error saveAttachment: ',error);
@@ -106,10 +104,10 @@ async function saveAttachment(session, attachment) {
     }
 
     const file = response.data.toString('base64');
-    const file_id = await uld.uploadFile(file,title)
-    console.log(`saved attachment: ${title} url: ${file_id}`);
+    const file_url = await uld.uploadFile(file,title)
+    console.log(`saved attachment: ${title} url: ${file_url}`);
 
-    return file_id;
+    return file_url;
   } catch (error) {
     console.error('Error saving attachment:', error);
     if (error.response) {
@@ -138,8 +136,8 @@ async function processResponse(data,session) {
     for (const item of previousData) {
       if (item.attachments[0]) {
         for (const att of item.attachments) {
-          if (att.file_id) {
-            delete att.file_id;
+          if (att.file_url) {
+            delete att.file_url;
           }
         }
       }
