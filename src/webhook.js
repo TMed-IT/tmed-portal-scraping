@@ -30,11 +30,16 @@ async function sendWebhook(item, type) {
       return attachments.map(att => att.file_id ? `- <${att.file_id}|${att.text}>` : `- ${att.text}`).join('\n');
     };
 
+    if (!item.content) {
+      console.log(`Skipping notification for ${item.title} due to no access permission`);
+      return false;
+    }
+
     const message = `*${type === 'new' ? '【新規】' : '【更新】'}*\n\n` +
       `*${item.title}*\n\n` +
       `*対象:* ${item.to.join(', ')}\n` +
       `*日時:* ${formatDate(item.posted)} 投稿, ${formatDate(item.updated)} 更新\n\n` +
-      `${item.content || '閲覧権限がありません'}` +
+      `${item.content}` +
       (item.attachments && item.attachments.length > 0 ? `\n\n*添付ファイル:*\n${formatAttachments(item.attachments)}` : '');
 
     const targetGrades = new Set();
@@ -56,7 +61,7 @@ async function sendWebhook(item, type) {
       }
 
       try {
-        const response = await axios.post(webhookUrl, {
+        await axios.post(webhookUrl, {
           text: message
         }, {
           headers: {
