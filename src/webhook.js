@@ -27,7 +27,7 @@ async function sendWebhook(item, type) {
     };
 
     const formatAttachments = (attachments) => {
-      return attachments.map(att => `- ${att.text}`).join('\n');
+      return attachments.map(att => att.file_id ? `- <${att.file_id}|${att.text}>` : `- ${att.text}`).join('\n');
     };
 
     if (!item.content) {
@@ -98,6 +98,35 @@ app.post('/notify', async (req, res) => {
       await sendWebhook(item, 'updated');
     }
     
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error processing notification:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/error', async (req, res) => {
+  try {
+    const message = 'Error tmed-portal-scraping detail: '+ JSON.stringify(req.body.error, null, '\t') + '\n';
+    try {
+      const Error_webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+      const response = await axios.post(Error_webhookUrl,{
+        content: message.length > 1900 ? message.slice(0, 1900) + '...（The rest is omitted）' : message
+      },{
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log(`Sent Error notification`);
+    } catch (error) {
+      console.error(`Error sending error message to discord:`, error);
+        if (error.response) {
+          console.error('Status:', error.response.status);
+          console.error('Response:', error.response.data);
+        }
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error processing notification:', error);

@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm install
 
 COPY src/scraper.js ./src/
+COPY src/uploader.js ./src/
 COPY .env ./
 
 CMD ["node", "src/scraper.js"] 
