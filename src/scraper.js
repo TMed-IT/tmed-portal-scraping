@@ -177,8 +177,8 @@ async function processResponse(data,session) {
 
           //Notify if there is an item that can't be detected without details (experimental)
           if(!isUpdated_nodetail){
-            console.log(`updating Item ${newItem.title} id: ${newItem.id} can't be detected without detail`);
-            sendErrorWebhook(`updating Item ${newItem.id} can't be detected without detail`);
+            console.log(`Notice: updated Item ${newItem.id} can't be detected without detail`);
+            sendErrorWebhook(new Error(`updated Item ${newItem.id} can't be detected without detail`));
           }
           
           updatedItems.push(newItem);

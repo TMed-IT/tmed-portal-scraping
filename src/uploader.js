@@ -25,7 +25,7 @@ async function uploadFile(file,title) {
         throw new Error('Error no fileUrl in respose: '+ title + JSON.stringify(res.data));
     }
   } catch (err) {
-    console.error('Error upload failed:',title, err.response ? err.response.data : err.message);
+    console.error('Error upload failed:'+ title + err.response ? err.response.data : err.message);
     throw err;
   }
 }
