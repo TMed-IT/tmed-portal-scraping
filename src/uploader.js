@@ -22,10 +22,10 @@ async function uploadFile(file,title) {
     if (res.data.fileUrl){
         return res.data.fileUrl;
     } else {
-        throw new Error('Error no fileUrl in respose: '+ title + JSON.stringify(res.data));
+        throw new Error('Error no fileUrl in respose: '+ JSON.stringify(res.data));
     }
   } catch (err) {
-    console.error('Error upload failed:'+ title + err.response ? err.response.data : err.message);
+    console.error('Error upload failed:'+ title + err);
     throw err;
   }
 }

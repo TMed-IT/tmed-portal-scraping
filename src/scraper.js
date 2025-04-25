@@ -55,16 +55,19 @@ async function saveAttachmentForItem(session, item) {
           attachment.file_id = file_id;
           return attachment;
         } catch (error) {
-          throw error;
+          console.error('Error saveAttachment: ',error);
+          sendErrorWebhook(error);
+          return attachment;
         } 
-      }))
+      }));
       return item;
     }else {
       return item;
     }
   } catch (error) {
     console.error('Error saveAttachmentForItem: ', error);
-    throw error;
+    sendErrorWebhook(error);
+    return item;
   }
 }
 
@@ -112,9 +115,9 @@ async function saveAttachment(session, attachment) {
   } catch (error) {
     console.error('Error saving attachment:', error);
     if (error.response) {
-      console.log('Status:', error.response.status);
-      console.log('Headers:', error.response.headers);
-      console.log('Request Headers:', error.config.headers);
+      console.error('Status:', error.response.status);
+      console.error('Headers:', error.response.headers);
+      console.error('Request Headers:', error.config.headers);
     }
     throw error;
   }

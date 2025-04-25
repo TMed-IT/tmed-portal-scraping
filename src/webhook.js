@@ -102,9 +102,7 @@ app.post('/notify', async (req, res) => {
 
 app.post('/error', async (req, res) => {
   try {
-    console.log(req.body.error);
-    const message = 'Error tmed-portal-scraping detail: '+ JSON.stringify(req.body.error, null, '\t');
-    console.log(message);
+    const message = 'Error tmed-portal-scraping detail: '+ JSON.stringify(req.body.error, null, '\t') + '\n';
     try {
       const Error_webhookUrl = process.env.DISCORD_WEBHOOK_URL;
       const response = await axios.post(Error_webhookUrl,{
