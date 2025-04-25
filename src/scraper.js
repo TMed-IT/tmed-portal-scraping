@@ -97,7 +97,6 @@ async function saveAttachment(session, attachment) {
       return null;
     }
 
-    //The fileName is garbled. can't use
     const contentDisposition = response.headers['content-disposition'];
     if (contentDisposition) {
       const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
@@ -106,10 +105,9 @@ async function saveAttachment(session, attachment) {
       }
     }
 
-    //upload to google drive
     const file = response.data.toString('base64');
     const file_id = await uld.uploadFile(file,title)
-    console.log(`save attachment: ${title} url: ${file_id}`);
+    console.log(`saved attachment: ${title} url: ${file_id}`);
 
     return file_id;
   } catch (error) {
@@ -203,7 +201,7 @@ async function processResponse(data,session) {
           console.error('Error save attachment: ', error);
           await sendErrorWebhook(error);
         }
-        //send notification
+
         try {
           await axios.post(`${WEBHOOK_URL}/notify`, {
             new: newItems,
@@ -256,7 +254,6 @@ async function scrape() {
     const mainPage = iconv.decode(mainPageRaw.data, 'Shift_JIS');
     const $main = cheerio.load(mainPage);
 
-    //get ASP.NET_SessionId from the url specified in the iframe of the mainpage
     const ASP_NET_SessionId_Url = 'https://ep.med.toho-u.ac.jp' + $main('iframe').attr('src');
     const ASP_NET_SessionId_PageRaw = await session.get(ASP_NET_SessionId_Url);
     const ASP_NET_SessionIds = ASP_NET_SessionId_PageRaw.headers['set-cookie'];

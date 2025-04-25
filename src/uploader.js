@@ -1,4 +1,3 @@
-// npm install axios mime-types
 require('dotenv').config();
 const axios = require('axios');
 const mime = require('mime-types');
