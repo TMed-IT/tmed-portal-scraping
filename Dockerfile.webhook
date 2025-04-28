@@ -5,7 +5,4 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-COPY src/webhook.js ./src/
-COPY .env ./
-
 CMD ["node", "src/webhook.js"] 

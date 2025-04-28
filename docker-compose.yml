@@ -7,6 +7,7 @@ services:
     image: tmed-portal-scraper
     volumes:
       - ./src:/app/src
+      - ./.env:/app/.env
       - tmed-scraping-data:/app/data
     env_file:
       - .env
@@ -22,6 +23,7 @@ services:
     image: tmed-portal-webhook
     volumes:
       - ./src:/app/src
+      - ./.env:/app/.env
       - tmed-scraping-data:/app/data
     env_file:
       - .env
