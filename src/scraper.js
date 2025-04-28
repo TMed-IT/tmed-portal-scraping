@@ -12,7 +12,7 @@ const RESPONSES_DIR = path.join(BASE_DIR, 'responses');
 
 const uld = require('./uploader');
 
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://webhook:3000';
+const WEBHOOK_URL = process.env.WEBHOOK_PORT? `http://webhook:${process.env.WEBHOOK_PORT}` : 'http://webhook:3000';
 
 async function initializeDirectories() {
   try {

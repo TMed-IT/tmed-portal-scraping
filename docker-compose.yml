@@ -6,7 +6,7 @@ services:
     container_name: scraper
     image: tmed-portal-scraper
     volumes:
-      - ./data:/app/data
+      - ./src:/app/src
       - tmed-scraping-data:/app/data
     env_file:
       - .env
@@ -21,7 +21,7 @@ services:
     container_name: webhook
     image: tmed-portal-webhook
     volumes:
-      - ./data:/app/data
+      - ./src:/app/src
       - tmed-scraping-data:/app/data
     env_file:
       - .env
