@@ -75,4 +75,3 @@ docker compose up -d
 ## データ保存
 
 - `data/responses/`: スクレイピングしたデータのJSON
-- `data/attachments/`: ダウンロードした添付ファイル
