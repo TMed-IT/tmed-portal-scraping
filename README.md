@@ -6,9 +6,10 @@
 
 - 15分ごとにポータルサイトをスクレイピング（Workers Cron Trigger）
 - 新規/更新されたお知らせの検知と Google Chat への通知
-- 添付ファイルのアップロード（Cloudflare R2）
+- 添付ファイルのアップロード（Cloudflare R2 / D1の作成日時を基準に30日で自動削除）
 - Discord へのエラーレポート
 - 取得済みデータは Cloudflare D1（`notices` テーブル）に保存
+- D1 に保存されたお知らせ/添付ファイルのメタデータも30日で自動削除
 
 ## 必要条件
 
@@ -23,13 +24,16 @@
    npm install
    ```
 
-2. R2 バケットの作成
+2. R2 バケットの作成とカスタムドメイン
    ```bash
    wrangler r2 bucket create tmed-portal-attachments
    ```
    - `wrangler.toml` の `[[r2_buckets]]` で上記バケット名を `binding = "ATTACHMENTS_BUCKET"` に接続してください。
-   - 添付ファイルを公開するためのカスタムドメイン/パブリック URL（例: `https://assets.example.com`）を用意し、後述の `R2_PUBLIC_BASE_URL` に設定します。
+   - 添付ファイルを公開するためのカスタムドメイン/パブリック URL（例: `https://assets.example.com`）を用意します。Cloudflare Dashboard の **R2 → Buckets → tmed-portal-attachments → Custom Domains** から割り当てるか、Wrangler で `wrangler r2 bucket custom-domain create tmed-portal-attachments assets.example.com` を実行してください。
+   - DNS には `assets.example.com CNAME r2.pub.cloudflare.com` を追加し、発行された SSL 証明書が有効化されたら `.env.example`/シークレットの `R2_PUBLIC_BASE_URL` にドメインを登録します。
    - `.env.example` の `R2_BUCKET_NAME` も同じ名称に更新しておくと、ローカル開発時に参照しやすくなります。
+   - バケット内のファイルは D1 に記録された作成日時を参照して Cron から30日で自動削除されるため、必要な場合は別途バックアップを取得してください。
+   - 同じ基準で D1 上のお知らせレコードと添付ファイルのメタデータ (`notice_attachments` テーブル) も自動的に削除されます。
 
 3. D1 データベースの作成とマイグレーション
    ```bash
