@@ -1,4 +1,4 @@
-import type { KVNamespace } from '@cloudflare/workers-types';
+import type { D1Database } from '@cloudflare/workers-types';
 
 export interface NoticeAttachment {
   text: string;
@@ -35,7 +35,7 @@ export interface NormalizedNotice {
 }
 
 export interface WorkerEnv extends Record<string, unknown> {
-  NOTICE_DATA: KVNamespace;
+  DB: D1Database;
   LOGIN_ID?: string;
   LOGIN_PASSWORD?: string;
   DISCORD_WEBHOOK_URL?: string;

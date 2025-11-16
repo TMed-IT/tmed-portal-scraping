@@ -22,8 +22,8 @@ export async function runScraper(env: WorkerEnv): Promise<ScraperResult> {
   if (!loginId || !loginPassword) {
     throw new Error('LOGIN_ID or LOGIN_PASSWORD is not configured');
   }
-  if (!env.NOTICE_DATA) {
-    throw new Error('NOTICE_DATA KV binding is not configured');
+  if (!env.DB) {
+    throw new Error('DB D1 binding is not configured');
   }
 
   const session = createSession();
@@ -165,10 +165,9 @@ async function fetchDetailPage(session: Session, href: string): Promise<Partial<
 }
 
 async function processResponse(data: NoticeItem[], session: Session, env: WorkerEnv): Promise<ScraperResult> {
-  const stored = await env.NOTICE_DATA.get<NormalizedNotice[]>('notice.json', 'json');
-  const previousData: NormalizedNotice[] = Array.isArray(stored)
-    ? stored.map(normalizeStoredNotice)
-    : [];
+  if (!env.DB) {
+    throw new Error('DB D1 binding is not configured');
+  }
   const normalizedCurrent = data.map(normalizeNotice);
 
   const newItems: NoticeItem[] = [];
@@ -180,19 +179,21 @@ async function processResponse(data: NoticeItem[], session: Session, env: Worker
     if (!original) {
       continue;
     }
-    const existingItem = previousData.find(item => item.id === normalizedItem.id);
-    if (!existingItem) {
+    const row = createNoticeRow(normalizedItem);
+    const storedRow = await findStoredNotice(env.DB, row);
+    if (!storedRow) {
       newItems.push(clone(original));
+      await insertNoticeRow(env.DB, row);
       continue;
     }
-    const isUpdated = hasNoticeChanged(normalizedItem, existingItem);
-    const isUpdatedNoDetail = hasNoticeChangedWithoutDetail(normalizedItem, existingItem);
-
-    if (isUpdated) {
+    if (storedRow.has_change) {
+      const previous = noticeRowToNormalized(storedRow);
+      const isUpdatedNoDetail = hasNoticeChangedWithoutDetail(normalizedItem, previous);
       if (!isUpdatedNoDetail) {
         await sendErrorNotification(new Error(`updated Item ${normalizedItem.id} can't be detected without detail`), env);
       }
       updatedItems.push(clone(original));
+      await updateNoticeRow(env.DB, row);
     }
   }
 
@@ -211,8 +212,134 @@ async function processResponse(data: NoticeItem[], session: Session, env: Worker
     }
   }
 
-  await env.NOTICE_DATA.put('notice.json', JSON.stringify(normalizedCurrent));
   return { new: newItems.length, updated: updatedItems.length };
+}
+
+interface NoticeRow {
+  id: string;
+  to_json: string;
+  from_text: string;
+  posted_iso: string;
+  updated_iso: string;
+  title: string;
+  content: string | null;
+  attachments_json: string;
+}
+
+interface NoticeRowWithChange extends NoticeRow {
+  has_change: number;
+}
+
+function createNoticeRow(notice: NormalizedNotice): NoticeRow {
+  return {
+    id: notice.id,
+    to_json: JSON.stringify(Array.isArray(notice.to) ? notice.to : []),
+    from_text: notice.from,
+    posted_iso: notice.posted,
+    updated_iso: notice.updated,
+    title: notice.title,
+    content: typeof notice.content === 'string' ? notice.content : null,
+    attachments_json: JSON.stringify(Array.isArray(notice.attachments) ? notice.attachments : [])
+  };
+}
+
+function parseJsonArray<T>(value: string): T[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function noticeRowToNormalized(row: NoticeRow): NormalizedNotice {
+  return {
+    id: row.id,
+    to: parseJsonArray<string>(row.to_json),
+    from: row.from_text,
+    posted: row.posted_iso,
+    updated: row.updated_iso,
+    title: row.title,
+    content: row.content ?? undefined,
+    attachments: parseJsonArray<Omit<NoticeAttachment, 'file_url'>>(row.attachments_json)
+  };
+}
+
+async function findStoredNotice(db: WorkerEnv['DB'], row: NoticeRow): Promise<NoticeRowWithChange | null> {
+  const statement = db.prepare(`
+    SELECT
+      id,
+      to_json,
+      from_text,
+      posted_iso,
+      updated_iso,
+      title,
+      content,
+      attachments_json,
+      (
+        updated_iso <> ? OR
+        IFNULL(content, '') <> IFNULL(?, '') OR
+        attachments_json <> ? OR
+        from_text <> ? OR
+        to_json <> ? OR
+        title <> ?
+      ) AS has_change
+    FROM notices
+    WHERE id = ?
+    LIMIT 1
+  `);
+  const record = await statement
+    .bind(row.updated_iso, row.content ?? null, row.attachments_json, row.from_text, row.to_json, row.title, row.id)
+    .first<NoticeRowWithChange | null>();
+  return record ?? null;
+}
+
+async function insertNoticeRow(db: WorkerEnv['DB'], row: NoticeRow): Promise<void> {
+  await db.prepare(`
+    INSERT INTO notices (
+      id,
+      to_json,
+      from_text,
+      posted_iso,
+      updated_iso,
+      title,
+      content,
+      attachments_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    row.id,
+    row.to_json,
+    row.from_text,
+    row.posted_iso,
+    row.updated_iso,
+    row.title,
+    row.content,
+    row.attachments_json
+  ).run();
+}
+
+async function updateNoticeRow(db: WorkerEnv['DB'], row: NoticeRow): Promise<void> {
+  await db.prepare(`
+    UPDATE notices SET
+      to_json = ?,
+      from_text = ?,
+      posted_iso = ?,
+      updated_iso = ?,
+      title = ?,
+      content = ?,
+      attachments_json = ?,
+      updated_at = unixepoch()
+    WHERE id = ?
+  `).bind(
+    row.to_json,
+    row.from_text,
+    row.posted_iso,
+    row.updated_iso,
+    row.title,
+    row.content,
+    row.attachments_json,
+    row.id
+  ).run();
 }
 
 async function saveAttachmentForItem(session: Session, item: NoticeItem, env: WorkerEnv): Promise<NoticeItem> {
@@ -318,28 +445,6 @@ function normalizeNotice(item: NoticeItem): NormalizedNotice {
     content: item.content,
     attachments: (item.attachments || []).map(({ file_url: _fileUrl, ...rest }) => ({ ...rest }))
   };
-}
-
-function normalizeStoredNotice(item: NormalizedNotice): NormalizedNotice {
-  return {
-    id: item.id,
-    to: Array.isArray(item.to) ? [...item.to] : [],
-    from: item.from,
-    posted: item.posted,
-    updated: item.updated,
-    title: item.title,
-    content: item.content,
-    attachments: Array.isArray(item.attachments) ? item.attachments.map(att => ({ ...att })) : []
-  };
-}
-
-function hasNoticeChanged(current: NormalizedNotice, previous: NormalizedNotice): boolean {
-  return current.updated !== previous.updated ||
-    current.content !== previous.content ||
-    JSON.stringify(current.attachments) !== JSON.stringify(previous.attachments) ||
-    current.from !== previous.from ||
-    JSON.stringify(current.to) !== JSON.stringify(previous.to) ||
-    current.title !== previous.title;
 }
 
 function hasNoticeChangedWithoutDetail(current: NormalizedNotice, previous: NormalizedNotice): boolean {
