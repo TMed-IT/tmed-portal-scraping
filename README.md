@@ -1,77 +1,108 @@
-# TMED Portal Scraping
+# TMED Portal Scraping (Cloudflare Workers)
 
-東邦大学医学部ポータルサイトのお知らせを自動的にスクレイピングし、Google Chatに通知するシステムです。
+東邦大学医学部ポータルサイトのお知らせをCloudflare Workers上でスクレイピングし、学年別のGoogle Chatに配信します。Docker や常時稼働するサーバーは不要で、Workers の Cron Trigger が15分ごとに自動でスクレイピングを実行します。
 
-## 機能
+## 主な機能
 
-- 15分ごとにポータルサイトをスクレイピング
-- 新規投稿と更新された投稿を検知
-- 学年別のGoogle Chatに通知
-- 投稿内容をMarkdown形式で保存
+- 15分ごとにポータルサイトをスクレイピング（Workers Cron Trigger）
+- 新規/更新されたお知らせの検知と Google Chat への通知
+- 添付ファイルのアップロード（外部アップローダー API 経由）
+- Discord へのエラーレポート
+- 取得済みデータは Cloudflare KV（`NOTICE_DATA`）に保存
 
 ## 必要条件
 
-- Node.js 18以上
-- Docker と Docker Compose
+- [Cloudflare アカウント](https://dash.cloudflare.com/)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
+- Node.js 18 以上（Wrangler の実行にのみ使用）
 
-## 環境変数
+## セットアップ
 
-`.env`ファイルを作成し、以下の環境変数を設定してください：
+1. 依存関係のインストール（Wrangler / TypeScript / Workers 型定義）
+   ```bash
+   npm install
+   ```
 
-```env
-LOGIN_ID=
-LOGIN_PASSWORD=
-PORT=3000                           # Webhookサーバーのポート
-WEBHOOK_URL=http://localhost:3000   # WebhookサーバーのURL
+2. KV Namespace の作成
+   ```bash
+   wrangler kv namespace create NOTICE_DATA
+   wrangler kv namespace create NOTICE_DATA --preview
+   ```
+   作成後、発行された `id` と `preview_id` を `wrangler.toml` の `[[kv_namespaces]]` に転記します。
 
-UPLOAD_TOKEN=  # uploadAPI(CDN) SecretToken
-UPLOAD_URL=    # uploadAPI(CDN) URL
+3. シークレット/環境変数の登録（本番/プレビューの両方で実行してください）
+   ```bash
+   wrangler secret put LOGIN_ID
+   wrangler secret put LOGIN_PASSWORD
+   wrangler secret put UPLOAD_TOKEN
+   wrangler secret put UPLOAD_URL
+   wrangler secret put DISCORD_WEBHOOK_URL
+   wrangler secret put WEBHOOK_URL_M1
+   wrangler secret put WEBHOOK_URL_M2
+   wrangler secret put WEBHOOK_URL_M3
+   wrangler secret put WEBHOOK_URL_M4
+   wrangler secret put WEBHOOK_URL_M5
+   wrangler secret put WEBHOOK_URL_M6
+   ```
 
-# Google Chat Webhook URLs
-WEBHOOK_URL_M1=             # M1向けWebhook URL
-WEBHOOK_URL_M2=             # M2向けWebhook URL
-WEBHOOK_URL_M3=             # M3向けWebhook URL
-WEBHOOK_URL_M4=             # M4向けWebhook URL
-WEBHOOK_URL_M5=             # M5向けWebhook URL
-WEBHOOK_URL_M6=             # M6向けWebhook URL
+## ローカル開発
 
-DISCORD_WEBHOOK_URL=　#エラー通知用のdiscord Webhook URL
-```
-
-## インストールと実行
-
-1. リポジトリをクローン：
 ```bash
-git clone [repository-url]
-cd tmed-portal-scraping
+npm run dev
 ```
 
-2. 環境変数の設定：
+`wrangler dev` がローカルで Worker を起動し、
+- `POST /notify` と `POST /error` が Google Chat/Discord 通知 API として動作
+- Cron イベントは `wrangler dev` のターミナルから `c` キーを押して手動実行できます
+
+TypeScript 型チェックは以下のコマンドで行えます。
+
 ```bash
-cp .env.example .env
-# .envファイルを編集して必要な値を設定
+npm run typecheck
 ```
 
-3. Dockerコンテナの起動：
+## デプロイ
+
 ```bash
-docker compose up -d
+npm run deploy
 ```
 
-## アーキテクチャ
+デプロイ後は Cloudflare ダッシュボードの **Triggers** から Cron (`*/15 * * * *`) が有効になっていることを確認してください。
 
-システムは2つのコンテナで構成されています：
+## プロジェクト構成
 
-1. **Scraper**（`src/scraper.js`）
-   - ポータルサイトのスクレイピング
-   - 投稿内容の解析と保存
-   - 添付ファイルのアップロード (`src/uploader.js`)
-   - Webhookサーバーへの通知
+```
+src/
+├── index.ts      # Workers エントリーポイント（HTTP + Cron）
+├── scraper.ts    # ポータルスクレイピング + KV への保存処理
+├── webhook.ts    # Google Chat/Discord 通知ロジック
+└── types.ts      # 共有型定義
+```
 
-2. **Webhook**（`src/webhook.js`）
-   - 通知の受信
-   - Google Chatへのメッセージ送信
-   - 学年別の通知振り分け
+- `wrangler.toml` : Workers 設定。Cron、KV バインディング等を定義。
+- `package.json`   : Wrangler 実行用スクリプト。
 
-## データ保存
+## HTTP エンドポイント
 
-- `data/responses/`: スクレイピングしたデータのJSON
+| メソッド | パス      | 説明                                   |
+| -------- | --------- | -------------------------------------- |
+| POST     | `/notify` | スクレイパー結果を手動送信するためのAPI |
+| POST     | `/error`  | エラー内容を Discord に転送             |
+| GET      | `/healthz`| 簡易ヘルスチェック                     |
+
+## 環境変数一覧
+
+| 変数名              | 用途                                    |
+| ------------------- | --------------------------------------- |
+| `LOGIN_ID`          | ポータルログイン ID                     |
+| `LOGIN_PASSWORD`    | ポータルログイン パスワード             |
+| `UPLOAD_URL`        | 添付ファイルを送信する API エンドポイント|
+| `UPLOAD_TOKEN`      | 添付ファイル API 認証トークン          |
+| `WEBHOOK_URL_M1-6`  | 学年別 Google Chat Webhook URL         |
+| `DISCORD_WEBHOOK_URL` | エラーログ送信用 Discord Webhook     |
+
+これらは `wrangler secret put <NAME>` で登録します。
+
+## ライセンス
+
+ISC

@@ -1,0 +1,11 @@
+name = "tmed-portal-scraping"
+main = "src/index.ts"
+compatibility_date = "2024-11-19"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "NOTICE_DATA"
+id = "00000000000000000000000000000000"
+preview_id = "11111111111111111111111111111111"
