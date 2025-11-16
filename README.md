@@ -8,7 +8,7 @@
 - 新規/更新されたお知らせの検知と Google Chat への通知
 - 添付ファイルのアップロード（外部アップローダー API 経由）
 - Discord へのエラーレポート
-- 取得済みデータは Cloudflare KV（`NOTICE_DATA`）に保存
+- 取得済みデータは Cloudflare D1（`notices` テーブル）に保存
 
 ## 必要条件
 
@@ -23,12 +23,14 @@
    npm install
    ```
 
-2. KV Namespace の作成
+2. D1 データベースの作成とマイグレーション
    ```bash
-   wrangler kv namespace create NOTICE_DATA
-   wrangler kv namespace create NOTICE_DATA --preview
+   wrangler d1 create tmed-portal-scraping
+   wrangler d1 migrations apply tmed-portal-scraping --local
+   wrangler d1 migrations apply tmed-portal-scraping --remote
    ```
-   作成後、発行された `id` と `preview_id` を `wrangler.toml` の `[[kv_namespaces]]` に転記します。
+   - 作成後に表示される `database_id` / `preview_database_id` を `wrangler.toml` の `[[d1_databases]]` に設定します。
+   - ローカルの `wrangler dev` でも D1 を利用するため、`migrations/` 配下の SQL を必ず適用してください。
 
 3. シークレット/環境変数の登録（本番/プレビューの両方で実行してください）
    ```bash
@@ -74,12 +76,13 @@ npm run deploy
 ```
 src/
 ├── index.ts      # Workers エントリーポイント（HTTP + Cron）
-├── scraper.ts    # ポータルスクレイピング + KV への保存処理
+├── scraper.ts    # ポータルスクレイピング + D1 への保存処理
 ├── webhook.ts    # Google Chat/Discord 通知ロジック
 └── types.ts      # 共有型定義
+migrations/       # Cloudflare D1 用の SQL マイグレーション
 ```
 
-- `wrangler.toml` : Workers 設定。Cron、KV バインディング等を定義。
+- `wrangler.toml` : Workers 設定。Cron、D1 バインディング等を定義。
 - `package.json`   : Wrangler 実行用スクリプト。
 
 ## HTTP エンドポイント
@@ -94,14 +97,15 @@ src/
 
 | 変数名              | 用途                                    |
 | ------------------- | --------------------------------------- |
-| `LOGIN_ID`          | ポータルログイン ID                     |
-| `LOGIN_PASSWORD`    | ポータルログイン パスワード             |
-| `UPLOAD_URL`        | 添付ファイルを送信する API エンドポイント|
-| `UPLOAD_TOKEN`      | 添付ファイル API 認証トークン          |
-| `WEBHOOK_URL_M1-6`  | 学年別 Google Chat Webhook URL         |
-| `DISCORD_WEBHOOK_URL` | エラーログ送信用 Discord Webhook     |
+| `LOGIN_ID`            | ポータルログイン ID                       |
+| `LOGIN_PASSWORD`      | ポータルログイン パスワード               |
+| `UPLOAD_URL`          | 添付ファイルを送信する API エンドポイント |
+| `UPLOAD_TOKEN`        | 添付ファイル API 認証トークン            |
+| `WEBHOOK_URL_M1-6`    | 学年別 Google Chat Webhook URL           |
+| `DISCORD_WEBHOOK_URL` | エラーログ送信用 Discord Webhook         |
+| `DB`（D1 binding）    | 保存済みお知らせを保持する Cloudflare D1 |
 
-これらは `wrangler secret put <NAME>` で登録します。
+これらのシークレット値は `wrangler secret put <NAME>` で登録します。`DB` は `wrangler.toml` の D1 バインディングにより自動的に注入されるため、追加の登録は不要です。
 
 ## ライセンス
 
