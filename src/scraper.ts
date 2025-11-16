@@ -342,25 +342,47 @@ async function updateNoticeRow(db: WorkerEnv['DB'], row: NoticeRow): Promise<voi
   ).run();
 }
 
+interface StoredAttachmentRecord {
+  noticeId: string;
+  objectKey: string;
+  publicUrl: string | null;
+}
+
 async function saveAttachmentForItem(session: Session, item: NoticeItem, env: WorkerEnv): Promise<NoticeItem> {
   if (!item.attachments?.length) {
     return item;
   }
   const attachments: NoticeAttachment[] = [];
+  const uploadsToPersist: StoredAttachmentRecord[] = [];
   for (const attachment of item.attachments) {
     try {
-      const fileUrl = await saveAttachment(session, attachment, env);
-      attachments.push({ ...attachment, file_url: fileUrl ?? null });
+      const uploaded = await saveAttachment(session, attachment, env);
+      attachments.push({ ...attachment, file_url: uploaded?.fileUrl ?? null });
+      if (uploaded?.objectKey) {
+        uploadsToPersist.push({
+          noticeId: item.id,
+          objectKey: uploaded.objectKey,
+          publicUrl: uploaded.fileUrl ?? null
+        });
+      }
     } catch (error) {
       console.error('Error saving attachment', attachment.text, error);
       await sendErrorNotification(error, env);
       attachments.push(attachment);
     }
   }
+  if (uploadsToPersist.length) {
+    try {
+      await recordAttachmentUploads(env.DB, uploadsToPersist);
+    } catch (error) {
+      console.error('Failed to persist attachment metadata', error);
+      await sendErrorNotification(error, env);
+    }
+  }
   return { ...item, attachments };
 }
 
-async function saveAttachment(session: Session, attachment: NoticeAttachment, env: WorkerEnv): Promise<string | null> {
+async function saveAttachment(session: Session, attachment: NoticeAttachment, env: WorkerEnv): Promise<{ fileUrl: string | null; objectKey: string } | null> {
   if (!attachment.url) {
     return null;
   }
@@ -389,7 +411,19 @@ async function saveAttachment(session: Session, attachment: NoticeAttachment, en
   if (!publicUrl) {
     console.warn(`R2_PUBLIC_BASE_URL is not configured. Uploaded object key: ${key}`);
   }
-  return publicUrl;
+  return { fileUrl: publicUrl ?? null, objectKey: key };
+}
+
+async function recordAttachmentUploads(db: WorkerEnv['DB'], records: StoredAttachmentRecord[]): Promise<void> {
+  if (!records.length) {
+    return;
+  }
+  for (const record of records) {
+    await db.prepare(`
+      INSERT OR IGNORE INTO notice_attachments (notice_id, r2_key, public_url)
+      VALUES (?, ?, ?)
+    `).bind(record.noticeId, record.objectKey, record.publicUrl ?? null).run();
+  }
 }
 
 function inferMimeType(filename = ''): string {
