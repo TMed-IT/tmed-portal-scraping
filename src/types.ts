@@ -1,4 +1,4 @@
-import type { D1Database } from '@cloudflare/workers-types';
+import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 
 export interface NoticeAttachment {
   text: string;
@@ -36,11 +36,11 @@ export interface NormalizedNotice {
 
 export interface WorkerEnv extends Record<string, unknown> {
   DB: D1Database;
+  ATTACHMENTS_BUCKET?: R2Bucket;
   LOGIN_ID?: string;
   LOGIN_PASSWORD?: string;
   DISCORD_WEBHOOK_URL?: string;
-  UPLOAD_URL?: string;
-  UPLOAD_TOKEN?: string;
+  R2_PUBLIC_BASE_URL?: string;
 }
 
 export interface ScraperResult {

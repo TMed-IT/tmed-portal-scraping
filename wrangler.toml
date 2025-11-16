@@ -11,3 +11,8 @@ database_name = "tmed-portal-scraping"
 database_id = "00000000-0000-0000-0000-000000000000"
 preview_database_id = "11111111-1111-1111-1111-111111111111"
 migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ATTACHMENTS_BUCKET"
+bucket_name = "tmed-portal-attachments"
+preview_bucket_name = "tmed-portal-attachments"

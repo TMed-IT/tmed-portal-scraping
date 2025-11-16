@@ -364,6 +364,10 @@ async function saveAttachment(session: Session, attachment: NoticeAttachment, en
   if (!attachment.url) {
     return null;
   }
+  if (!env.ATTACHMENTS_BUCKET) {
+    console.warn('ATTACHMENTS_BUCKET is not configured. Skipping upload.');
+    return null;
+  }
   const url = new URL(attachment.url, PORTAL_BASE_URL).toString();
   const response = await session.get(url);
   if (!response.ok) {
@@ -375,45 +379,17 @@ async function saveAttachment(session: Session, attachment: NoticeAttachment, en
     return null;
   }
   const arrayBuffer = await response.arrayBuffer();
-  const base64 = arrayBufferToBase64(arrayBuffer);
-  return uploadFile(base64, attachment.text, env);
-}
-
-async function uploadFile(file: string, title: string, env: WorkerEnv): Promise<string | null> {
-  if (typeof env.UPLOAD_URL !== 'string' || typeof env.UPLOAD_TOKEN !== 'string') {
-    console.warn('UPLOAD_URL or UPLOAD_TOKEN is not configured. Skipping upload.');
-    return null;
-  }
-  const payload = {
-    token: env.UPLOAD_TOKEN,
-    filename: title,
-    mimeType: inferMimeType(title),
-    fileData: file
-  } satisfies Record<string, unknown>;
-  const response = await fetch(env.UPLOAD_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+  const key = createAttachmentKey(attachment.text, url);
+  const mimeType = contentType || inferMimeType(attachment.text);
+  await env.ATTACHMENTS_BUCKET.put(key, arrayBuffer, {
+    httpMetadata: { contentType: mimeType },
+    customMetadata: { source_url: url }
   });
-  if (!response.ok) {
-    throw new Error(`Upload failed with status ${response.status}`);
+  const publicUrl = buildR2PublicUrl(env, key);
+  if (!publicUrl) {
+    console.warn(`R2_PUBLIC_BASE_URL is not configured. Uploaded object key: ${key}`);
   }
-  const data = await response.json() as { fileUrl?: string };
-  if (!data.fileUrl) {
-    throw new Error('Upload response missing fileUrl');
-  }
-  return data.fileUrl;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
+  return publicUrl;
 }
 
 function inferMimeType(filename = ''): string {
@@ -432,6 +408,44 @@ function inferMimeType(filename = ''): string {
     png: 'image/png'
   };
   return map[ext ?? ''] || 'application/octet-stream';
+}
+
+function createAttachmentKey(filename: string, sourceUrl: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const randomSuffix = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().split('-')[0]
+    : Math.random().toString(36).slice(2, 10);
+  const extension = extractFileExtension(filename) || extractFileExtension(sourceUrl);
+  const baseName = sanitizeFileStem(filename);
+  const keyBase = `attachments/${timestamp}-${randomSuffix}-${baseName}`;
+  return extension ? `${keyBase}.${extension}` : keyBase;
+}
+
+function extractFileExtension(text: string): string | null {
+  const clean = text.split('?')[0];
+  const match = clean.match(/\.([a-zA-Z0-9]{1,10})$/);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function sanitizeFileStem(filename: string): string {
+  const base = filename.split('/').pop()?.split('\\').pop() ?? '';
+  return base
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFKD')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase() || 'attachment';
+}
+
+function buildR2PublicUrl(env: WorkerEnv, objectKey: string): string | null {
+  const base = typeof env.R2_PUBLIC_BASE_URL === 'string' ? env.R2_PUBLIC_BASE_URL.trim() : '';
+  if (!base) {
+    return null;
+  }
+  const normalizedBase = base.replace(/\/+$/, '');
+  const normalizedKey = objectKey.replace(/^\/+/, '');
+  return `${normalizedBase}/${normalizedKey}`;
 }
 
 function normalizeNotice(item: NoticeItem): NormalizedNotice {
